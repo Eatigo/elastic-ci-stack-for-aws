@@ -38,39 +38,29 @@ Resources:
             SubnetId: !If [ "CreateVpcResources", $(Subnet1), !Select [1, $(Subnets) ]]
             WeightedCapacity: 1
 
-  # SpotWorkerFleetScalableTarget:
-  #   Type: "AWS::ApplicationAutoScaling::ScalableTarget"
-  #   Properties:
-  #     MaxCapacity: 3
-  #     MinCapacity: 1
-  #     ResourceId:
-  #       Fn::Join:
-  #       - ''
-  #       - - 'spot-fleet-request/'
-  #         - Ref: SpotWorkerFleet
-  #     RoleARN:
-  #       Fn::Join:
-  #       - ''
-  #       - - 'arn:aws:iam::'
-  #         - {Ref: 'AWS::AccountId'}
-  #         - ':role/'
-  #         - {Ref: FleetAutoscaleRole}
-  #     ScalableDimension: 'ec2:spot-fleet-request:TargetCapacity'
-  #     ServiceNamespace: 'ec2'
+  SpotWorkerFleetScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 3
+      MinCapacity: 1
+      ResourceId: !Sub 'spot-fleet-request/${SpotWorkerFleet}'
+      RoleARN: !GetAtt [SpotFleetIamRole, Arn]
+      ScalableDimension: 'ec2:spot-fleet-request:TargetCapacity'
+      ServiceNamespace: 'ec2'
 
-  # FleetUpPolicy:
-  #   Type : "AWS::ApplicationAutoScaling::ScalingPolicy"
-  #   Properties:
-  #     PolicyName: FleetUpPolicy
-  #     PolicyType: StepScaling
-  #     ScalingTargetId: !Ref SpotWorkerFleetScalableTarget
-  #     StepScalingPolicyConfiguration:
-  #       AdjustmentType: ChangeInCapacity
-  #       Cooldown: '1500'
-  #       MetricAggregationType: Average
-  #       StepAdjustments:
-  #         - MetricIntervalUpperBound: 10
-  #           MetricIntervalLowerBound: 0
-  #           ScalingAdjustment: 1
-  #         - MetricIntervalLowerBound: 10
-  #           ScalingAdjustment: 1
+  FleetUpPolicy:
+    Type : "AWS::ApplicationAutoScaling::ScalingPolicy"
+    Properties:
+      PolicyName: FleetUpPolicy
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref SpotWorkerFleetScalableTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: '1500'
+        MetricAggregationType: Average
+        StepAdjustments:
+          - MetricIntervalUpperBound: 10
+            MetricIntervalLowerBound: 0
+            ScalingAdjustment: 1
+          - MetricIntervalLowerBound: 10
+            ScalingAdjustment: 1
