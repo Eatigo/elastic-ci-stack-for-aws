@@ -43,7 +43,7 @@ Resources:
     Properties:
       MaxCapacity: 3
       MinCapacity: 1
-      ResourceId: !Sub 'spot-fleet-request/${SpotWorkerFleet}'
+      ResourceId: "spot-fleet-request/$(SpotWorkerFleet)"
       RoleARN: !GetAtt [SpotFleetIamRole, Arn]
       ScalableDimension: 'ec2:spot-fleet-request:TargetCapacity'
       ServiceNamespace: 'ec2'
