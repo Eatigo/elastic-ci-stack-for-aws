@@ -20,7 +20,7 @@ Resources:
     Type: AWS::EC2::SpotFleet
     Properties:
       SpotFleetRequestConfigData:
-        IamFleetRole: !GetAtt [SpotFleetIamRole, Arn]
+        IamFleetRole: !GetAtt [SpotFleetIAMRole, Arn]
         IamInstanceProfile:
           Arn: !GetAtt [IAMRole, Arn]
         SpotPrice: !Ref SpotPrice
@@ -38,13 +38,13 @@ Resources:
             SubnetId: !If [ "CreateVpcResources", $(Subnet1), !Select [1, $(Subnets) ]]
             WeightedCapacity: 1
 
-  SpotWorkerFleetScalableTarget:
+  SpotFleetScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
       MaxCapacity: 3
       MinCapacity: 1
-      ResourceId: "spot-fleet-request/$(SpotWorkerFleet)"
-      RoleARN: !GetAtt [SpotFleetIamRole, Arn]
+      ResourceId: "spot-fleet-request/$(SpotFleet)"
+      RoleARN: !GetAtt [SpotFleetIAMRole, Arn]
       ScalableDimension: 'ec2:spot-fleet-request:TargetCapacity'
       ServiceNamespace: 'ec2'
 
@@ -53,7 +53,7 @@ Resources:
     Properties:
       PolicyName: FleetUpPolicy
       PolicyType: StepScaling
-      ScalingTargetId: !Ref SpotWorkerFleetScalableTarget
+      ScalingTargetId: !Ref SpotFleetScalableTarget
       StepScalingPolicyConfiguration:
         AdjustmentType: ChangeInCapacity
         Cooldown: '1500'
