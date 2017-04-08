@@ -134,6 +134,11 @@ Parameters:
     Default: t2.nano
     MinLength: 1
 
+  SpotPrice:
+    Description: Spot bid price to use for the spot fleet. 0 means on-demand instances
+    Type: String
+    Default: 0
+
   DesiredCapacity:
     Description: Desired number of instances to start with
     Type: Number
