@@ -7,10 +7,10 @@ STACK_NAME ?= buildkite
 SHELL=/bin/bash -o pipefail
 TEMPLATES=templates/description.yml \
   templates/buildkite-elastic.yml \
-  templates/autoscale.yml \
+  templates/on-demand.yml \
+  templates/spot-fleet.yml \
   templates/vpc.yml \
-  templates/metrics.yml \
-  templates/outputs.yml
+  templates/metrics.yml
 
 all: setup build
 

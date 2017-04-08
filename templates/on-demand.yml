@@ -1,0 +1,180 @@
+
+Resources:
+  AgentLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Condition: UseOnDemandInstances
+    Properties:
+      AssociatePublicIpAddress: $(AssociatePublicIpAddress)
+      SecurityGroups: [ !If [ "CreateSecurityGroup", $(SecurityGroup), $(SecurityGroupId) ] ]
+      KeyName : $(KeyName)
+      IamInstanceProfile: $(IAMInstanceProfile)
+      InstanceType: $(InstanceType)
+      SpotPrice: !If [ "UseSpotInstances", $(SpotPrice), '$(AWS::NoValue)' ]
+      ImageId : !If [
+        "UseDefaultAMI",
+        "$(AWSRegion2AMI[$(AWS::Region)][AMI])",
+        $(ImageId)
+      ]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: $(RootVolumeSize), VolumeType: gp2 }
+      UserData: !Base64 |
+        #!/bin/bash -xv
+        BUILDKITE_STACK_NAME="$(AWS::StackName)" \
+        BUILDKITE_STACK_VERSION=dev \
+        BUILDKITE_SECRETS_BUCKET="$(SecretsBucket)" \
+        BUILDKITE_AGENT_TOKEN="$(BuildkiteAgentToken)" \
+        BUILDKITE_AGENTS_PER_INSTANCE="$(AgentsPerInstance)" \
+        BUILDKITE_AGENT_RELEASE="$(BuildkiteAgentRelease)" \
+        BUILDKITE_QUEUE="$(BuildkiteQueue)" \
+        BUILDKITE_ELASTIC_BOOTSTRAP_SCRIPT="$(BootstrapScriptUrl)" \
+        BUILDKITE_AUTHORIZED_USERS_URL="$(AuthorizedUsersUrl)" \
+        BUILDKITE_ECR_POLICY=$(ECRAccessPolicy) \
+        AWS_DEFAULT_REGION=$(AWS::Region) \
+        AWS_REGION=$(AWS::Region) \
+          /usr/local/bin/bk-install-elastic-stack.sh
+
+  # XXX: We don't even want a topic or role, but CloudFormation requires them
+  # to create a lifecycle hook.
+  AgentLifecycleTopic:
+    Type: AWS::SNS::Topic
+    Condition: UseOnDemandInstances
+
+  AgentLifecycleHookRole:
+    Type: AWS::IAM::Role
+    Condition: UseOnDemandInstances
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ autoscaling.amazonaws.com ]
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AgentLifecyclePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: $(AgentLifecycleTopic)
+      Path: /
+
+  AgentLifecycleHook:
+    Type: AWS::AutoScaling::LifecycleHook
+    Condition: UseOnDemandInstances
+    Properties:
+      AutoScalingGroupName: $(AgentAutoScaleGroup)
+      LifecycleTransition: autoscaling:EC2_INSTANCE_TERMINATING
+      DefaultResult: CONTINUE
+      NotificationTargetARN: $(AgentLifecycleTopic)
+      RoleARN: $(AgentLifecycleHookRole[Arn])
+
+  AgentAutoScaleGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Condition: UseOnDemandInstances
+    Properties:
+      VPCZoneIdentifier: !If [
+        "CreateVpcResources",
+        [ $(Subnet0), $(Subnet1) ],
+        $(Subnets)
+      ]
+      LaunchConfigurationName: $(AgentLaunchConfiguration)
+      DesiredCapacity: $(DesiredCapacity)
+      MinSize: $(MinSize)
+      MaxSize: $(MaxSize)
+      MetricsCollection:
+        - Granularity: 1Minute
+          Metrics:
+            - GroupMinSize
+            - GroupMaxSize
+            - GroupInServiceInstances
+            - GroupTerminatingInstances
+            - GroupPendingInstances
+      TerminationPolicies:
+        - OldestLaunchConfiguration
+        - ClosestToNextInstanceHour
+      Tags:
+        - Key: Role
+          Value: buildkite-agent
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: buildkite-agent
+          PropagateAtLaunch: true
+        - Key: BuildkiteAgentRelease
+          Value: $(BuildkiteAgentRelease)
+          PropagateAtLaunch: true
+        - Key: BuildkiteQueue
+          Value: $(BuildkiteQueue)
+          PropagateAtLaunch: true
+
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT5M
+        Count: $(MinSize)
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 0
+        MaxBatchSize: 5
+        # On rollback this might have to wait for an agent to finish
+        # a job. The agent's init script waits 30 minutes, so we wait
+        # a maximum of 40 minutes to be safe.
+        PauseTime: PT40M
+        WaitOnResourceSignals: true
+        # Ignore scaling alarms during update
+        SuspendProcesses:
+          - AlarmNotification
+          - ScheduledActions
+
+  AgentScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Condition: UseAutoscaling
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: $(AgentAutoScaleGroup)
+      Cooldown: 120
+      ScalingAdjustment : $(ScaleUpAdjustment)
+
+  AgentScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Condition: UseAutoscaling
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: $(AgentAutoScaleGroup)
+      Cooldown: 60
+      ScalingAdjustment: $(ScaleDownAdjustment)
+
+  AgentUtilizationAlarmHigh:
+   Type: AWS::CloudWatch::Alarm
+   Condition: UseAutoscaling
+   Properties:
+      AlarmDescription: Scale-up if ScheduledJobs > 0 for 1 minute
+      MetricName: ScheduledJobsCount
+      Namespace: Buildkite
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      AlarmActions: [ $(AgentScaleUpPolicy) ]
+      Dimensions:
+        - Name: Queue
+          Value: $(BuildkiteQueue)
+      ComparisonOperator: GreaterThanThreshold
+
+  AgentUtilizationAlarmLow:
+   Type: AWS::CloudWatch::Alarm
+   Condition: UseAutoscaling
+   Properties:
+      AlarmDescription: Scale-down if UnfinishedJobs == 0 for 30 minutes
+      MetricName: UnfinishedJobsCount
+      Namespace: Buildkite
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 6
+      Threshold: 0
+      AlarmActions: [ $(AgentScaleDownPolicy) ]
+      Dimensions:
+        - Name: Queue
+          Value: $(BuildkiteQueue)
+      ComparisonOperator: LessThanOrEqualToThreshold
+

@@ -1,0 +1,76 @@
+
+Resources:
+
+  SpotFleetIAMRole:
+    Type: AWS::IAM::Role
+    Condition: CreateMetricsStack
+    Properties:
+      RoleName: "$(AWS::StackName)-SpotFleetIAMRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetRole"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ spotfleet.amazonaws.com ]
+            Action: sts:AssumeRole
+      Path: /
+
+  SpotFleet:
+    Type: AWS::EC2::SpotFleet
+    Properties:
+      SpotFleetRequestConfigData:
+        IamFleetRole: !GetAtt [SpotFleetIamRole, Arn]
+        IamInstanceProfile:
+          Arn: !GetAtt [IAMRole, Arn]
+        SpotPrice: !Ref SpotPrice
+        TargetCapacity: !Ref MinSize
+        ImageId: !If [
+          "UseDefaultAMI",
+          "$(AWSRegion2AMI[$(AWS::Region)][AMI])",
+          $(ImageId)
+        ]
+        LaunchSpecifications:
+          - InstanceType: !Ref InstanceType
+            SubnetId: !If [ "CreateVpcResources", $(Subnet0), !Select [0, $(Subnets) ]]
+            WeightedCapacity: 1
+          - InstanceType: !Ref InstanceType
+            SubnetId: !If [ "CreateVpcResources", $(Subnet0), !Select [0, $(Subnets) ]]
+            WeightedCapacity: 1
+
+  # SpotWorkerFleetScalableTarget:
+  #   Type: "AWS::ApplicationAutoScaling::ScalableTarget"
+  #   Properties:
+  #     MaxCapacity: 3
+  #     MinCapacity: 1
+  #     ResourceId:
+  #       Fn::Join:
+  #       - ''
+  #       - - 'spot-fleet-request/'
+  #         - Ref: SpotWorkerFleet
+  #     RoleARN:
+  #       Fn::Join:
+  #       - ''
+  #       - - 'arn:aws:iam::'
+  #         - {Ref: 'AWS::AccountId'}
+  #         - ':role/'
+  #         - {Ref: FleetAutoscaleRole}
+  #     ScalableDimension: 'ec2:spot-fleet-request:TargetCapacity'
+  #     ServiceNamespace: 'ec2'
+
+  # FleetUpPolicy:
+  #   Type : "AWS::ApplicationAutoScaling::ScalingPolicy"
+  #   Properties:
+  #     PolicyName: FleetUpPolicy
+  #     PolicyType: StepScaling
+  #     ScalingTargetId: !Ref SpotWorkerFleetScalableTarget
+  #     StepScalingPolicyConfiguration:
+  #       AdjustmentType: ChangeInCapacity
+  #       Cooldown: '1500'
+  #       MetricAggregationType: Average
+  #       StepAdjustments:
+  #         - MetricIntervalUpperBound: 10
+  #           MetricIntervalLowerBound: 0
+  #           ScalingAdjustment: 1
+  #         - MetricIntervalLowerBound: 10
+  #           ScalingAdjustment: 1
