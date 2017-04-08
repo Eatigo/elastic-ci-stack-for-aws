@@ -35,7 +35,7 @@ Resources:
             SubnetId: !If [ "CreateVpcResources", $(Subnet0), !Select [0, $(Subnets) ]]
             WeightedCapacity: 1
           - InstanceType: !Ref InstanceType
-            SubnetId: !If [ "CreateVpcResources", $(Subnet0), !Select [0, $(Subnets) ]]
+            SubnetId: !If [ "CreateVpcResources", $(Subnet1), !Select [1, $(Subnets) ]]
             WeightedCapacity: 1
 
   # SpotWorkerFleetScalableTarget:
