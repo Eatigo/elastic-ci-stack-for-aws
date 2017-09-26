@@ -3,7 +3,7 @@ set -euo pipefail
 
 mkdir -p build
 
-packer_files_sha=$(find packer/ -type f -print0 | xargs -0 sha1sum | awk '{print $1}' | sort | sha1sum | awk '{print $1}')
+packer_files_sha=$(find packer/ plugins/ -type f -print0 | xargs -0 sha1sum | awk '{print $1}' | sort | sha1sum | awk '{print $1}')
 echo "Packer files hash is $packer_files_sha"
 
 stable_agent_sha=$(curl -Lfs https://download.buildkite.com/agent/stable/latest/buildkite-agent-linux-amd64.sha256)
@@ -12,10 +12,7 @@ echo "Agent stable sha256 is $stable_agent_sha"
 unstable_agent_sha=$(curl -Lfs https://download.buildkite.com/agent/unstable/latest/buildkite-agent-linux-amd64.sha256)
 echo "Agent unstable sha256 is $unstable_agent_sha"
 
-experimental_agent_sha=$(curl -Lfs https://download.buildkite.com/agent/experimental/latest/buildkite-agent-linux-amd64.sha256)
-echo "Agent experimental sha256 is $experimental_agent_sha"
-
-packer_hash=$(echo "$packer_files_sha" "$stable_agent_sha" "$unstable_agent_sha" "$experimental_agent_sha" | sha1sum | awk '{print $1}')
+packer_hash=$(echo "$packer_files_sha" "$stable_agent_sha" "$unstable_agent_sha" | sha1sum | awk '{print $1}')
 echo "Packer image hash is $packer_hash"
 
 packer_file="${packer_hash}.packer"

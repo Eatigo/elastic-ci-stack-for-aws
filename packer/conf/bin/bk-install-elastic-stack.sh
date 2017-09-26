@@ -30,17 +30,37 @@ cwlogs = cwlogs
 region = $AWS_REGION
 EOF
 
+if [[ "${DOCKER_USERNS_REMAP:-false}" == "true" ]] ; then
+  echo "Enabling docker userns-remap"
+  cp /etc/sysconfig/docker.userns-remap /etc/sysconfig/docker
+  service docker restart
+fi
+
+PLUGINS_ENABLED=()
+[[ $SECRETS_PLUGIN_ENABLED == "true" ]] && PLUGINS_ENABLED+=("secrets")
+[[ $ECR_PLUGIN_ENABLED == "true" ]] && PLUGINS_ENABLED+=("ecr")
+[[ $DOCKER_LOGIN_PLUGIN_ENABLED == "true" ]] && PLUGINS_ENABLED+=("docker-login")
+
 # cfn-env is sourced by the environment hook in builds
 cat << EOF > /var/lib/buildkite-agent/cfn-env
-BUILDKITE_STACK_NAME=$BUILDKITE_STACK_NAME
-BUILDKITE_SECRETS_BUCKET=$BUILDKITE_SECRETS_BUCKET
-BUILDKITE_AGENTS_PER_INSTANCE=$BUILDKITE_AGENTS_PER_INSTANCE
-AWS_DEFAULT_REGION=$AWS_REGION
-AWS_REGION=$AWS_REGION
+export DOCKER_VERSION=$DOCKER_VERSION
+export BUILDKITE_STACK_NAME=$BUILDKITE_STACK_NAME
+export BUILDKITE_STACK_VERSION=$BUILDKITE_STACK_VERSION
+export BUILDKITE_AGENTS_PER_INSTANCE=$BUILDKITE_AGENTS_PER_INSTANCE
+export BUILDKITE_SECRETS_BUCKET=$BUILDKITE_SECRETS_BUCKET
+export AWS_DEFAULT_REGION=$AWS_REGION
+export AWS_REGION=$AWS_REGION
+export PLUGINS_ENABLED="${PLUGINS_ENABLED[*]}"
+export BUILDKITE_ECR_POLICY=${BUILDKITE_ECR_POLICY:-none}
+export BUILDKITE_USERNS_REMAP={DOCKER_USERNS_REMAP}
 EOF
 
-if [[ "${BUILDKITE_ECR_POLICY:-none}" != "none" ]] ; then
-	printf "AWS_ECR_LOGIN=1\n" >> /var/lib/buildkite-agent/cfn-env
+if [[ "${BUILDKITE_AGENT_RELEASE}" == "edge" ]] ; then
+	echo "Downloading buildkite-agent edge..."
+	curl -Lsf -o /usr/bin/buildkite-agent-edge \
+		"https://download.buildkite.com/agent/experimental/latest/buildkite-agent-linux-amd64"
+	chmod +x /usr/bin/buildkite-agent-edge
+	buildkite-agent-edge --version
 fi
 
 # Choose the right agent binary
@@ -71,9 +91,9 @@ for i in $(seq 1 "${BUILDKITE_AGENTS_PER_INSTANCE}"); do
 
 	# Setup logging first so we capture everything
 	cat <<- EOF > "/etc/awslogs/config/buildkite-agent-${i}.conf"
-	[/var/log/buildkite-agent-${i}.log]
+	[/buildkite/buildkite-agent-${i}.log]
 	file = /var/log/buildkite-agent-${i}.log
-	log_group_name = /var/log/buildkite-agent.log
+	log_group_name = /buildkite/buildkite-agent
 	log_stream_name = {instance_id}-${i}
 	datetime_format = %Y-%m-%d %H:%M:%S
 	EOF
@@ -97,8 +117,14 @@ if [[ -n "${BUILDKITE_ELASTIC_BOOTSTRAP_SCRIPT}" ]] ; then
 	rm /tmp/elastic_bootstrap
 fi
 
+cat << EOF > /etc/lifecycled
+AWS_REGION=${AWS_REGION}
+LIFECYCLED_SNS_TOPIC=${BUILDKITE_LIFECYCLE_TOPIC}
+LIFECYCLED_HANDLER=/usr/local/bin/stop-agent-gracefully
+EOF
+
 # my kingdom for a decent init system
-start terminationd || true
+start lifecycled || true
 service awslogs restart || true
 
 # wait for docker to start

@@ -5,18 +5,18 @@ Resources:
     Condition: UseAutoscaling
     Properties:
       AdjustmentType: ChangeInCapacity
-      AutoScalingGroupName: $(AgentAutoScaleGroup)
-      Cooldown: 120
-      ScalingAdjustment : $(ScaleUpAdjustment)
+      AutoScalingGroupName: { Ref: AgentAutoScaleGroup }
+      Cooldown: 300
+      ScalingAdjustment : { Ref: ScaleUpAdjustment }
 
   AgentScaleDownPolicy:
     Type: AWS::AutoScaling::ScalingPolicy
     Condition: UseAutoscaling
     Properties:
       AdjustmentType: ChangeInCapacity
-      AutoScalingGroupName: $(AgentAutoScaleGroup)
-      Cooldown: 60
-      ScalingAdjustment: $(ScaleDownAdjustment)
+      AutoScalingGroupName: { Ref: AgentAutoScaleGroup }
+      Cooldown: 300
+      ScalingAdjustment: { Ref: ScaleDownAdjustment }
 
   AgentUtilizationAlarmHigh:
    Type: AWS::CloudWatch::Alarm
@@ -29,25 +29,25 @@ Resources:
       Period: 60
       EvaluationPeriods: 1
       Threshold: 0
-      AlarmActions: [ $(AgentScaleUpPolicy) ]
+      AlarmActions: [ { Ref: AgentScaleUpPolicy } ]
       Dimensions:
         - Name: Queue
-          Value: $(BuildkiteQueue)
+          Value: { Ref: BuildkiteQueue }
       ComparisonOperator: GreaterThanThreshold
 
   AgentUtilizationAlarmLow:
    Type: AWS::CloudWatch::Alarm
    Condition: UseAutoscaling
    Properties:
-      AlarmDescription: Scale-down if UnfinishedJobs == 0 for 30 minutes
+      AlarmDescription: Scale-down if UnfinishedJobs == 0 for N minutes
       MetricName: UnfinishedJobsCount
       Namespace: Buildkite
       Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 6
+      Period: { Ref: ScaleDownPeriod }
+      EvaluationPeriods: 1
       Threshold: 0
-      AlarmActions: [ $(AgentScaleDownPolicy) ]
+      AlarmActions: [ { Ref: AgentScaleDownPolicy } ]
       Dimensions:
         - Name: Queue
-          Value: $(BuildkiteQueue)
+          Value: { Ref: BuildkiteQueue }
       ComparisonOperator: LessThanOrEqualToThreshold

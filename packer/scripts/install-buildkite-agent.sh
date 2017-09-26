@@ -22,12 +22,6 @@ sudo curl -Lsf -o /usr/bin/buildkite-agent-beta \
 sudo chmod +x /usr/bin/buildkite-agent-beta
 buildkite-agent-beta --version
 
-echo "Downloading buildkite-agent edge..."
-sudo curl -Lsf -o /usr/bin/buildkite-agent-edge \
-  "https://download.buildkite.com/agent/experimental/latest/buildkite-agent-linux-amd64"
-sudo chmod +x /usr/bin/buildkite-agent-edge
-buildkite-agent-edge --version
-
 echo "Downloading legacy bootstrap.sh for v2 stable agent..."
 sudo mkdir -p /etc/buildkite-agent
 sudo curl -Lsf -o /etc/buildkite-agent/bootstrap.sh \
@@ -62,5 +56,10 @@ sudo chown -R buildkite-agent: /var/lib/buildkite-agent/plugins
 echo "Adding init.d template..."
 sudo cp /tmp/conf/buildkite-agent/init.d/buildkite-agent /etc/buildkite-agent/init.d.tmpl
 
-echo "Adding termationd hook..."
-sudo cp /tmp/conf/buildkite-agent/terminationd/hook /etc/terminationd/hook
+echo "Adding termination script..."
+sudo cp /tmp/conf/buildkite-agent/scripts/stop-agent-gracefully /usr/local/bin/stop-agent-gracefully
+
+echo "Copying built-in plugins..."
+sudo mkdir -p /usr/local/buildkite-aws-stack/plugins
+sudo cp -a /tmp/plugins/* /usr/local/buildkite-aws-stack/plugins/
+sudo chown -R buildkite-agent: /usr/local/buildkite-aws-stack

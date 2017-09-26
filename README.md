@@ -49,7 +49,7 @@ Features:
 
 See the [Elastic CI Stack for AWS guide](https://buildkite.com/docs/guides/elastic-ci-stack-aws) for a step-by-step guide, or jump straight in:
 
-[![Launch AWS Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/new?stackName=buildkite&templateURL=https://s3.amazonaws.com/buildkite-aws-stack/aws-stack.json)
+[![Launch AWS Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/new?stackName=buildkite&templateURL=https://s3.amazonaws.com/buildkite-aws-stack/latest/aws-stack.json)
 
 Current release is ![](https://img.shields.io/github/release/buildkite/elastic-ci-stack-for-aws.svg). See [Releases](https://github.com/buildkite/elastic-ci-stack-for-aws/releases) for older releases, or [Versions](#versions) for development version
 
@@ -61,23 +61,23 @@ If you'd like to use the [AWS CLI](https://aws.amazon.com/cli/), download [`conf
 aws cloudformation create-stack \
   --output text \
   --stack-name buildkite \
-  --template-url "https://s3.amazonaws.com/buildkite-aws-stack/aws-stack.json" \
+  --template-url "https://s3.amazonaws.com/buildkite-aws-stack/latest/aws-stack.json" \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
   --parameters $(cat config.json)
 ```
 
 ## Build Secrets
 
-The stack refers to a `SecretsBucket` parameter which will allow your agents to access SSH private keys for source control, and environment hooks to provide secrets to your builds.
+The stack will have created an S3 bucket for you (or used the one you provided as the `SecretsBucket` parameter). This will be where the agent will fetch your SSH private keys for source control, and environment hooks to provide other secrets to your builds.
 
-> You will need to create this S3 bucket yourself, but the stack will automatically create permissions for access to it. Make sure to create the bucket in the same region as your stack.
-
-The following paths in the bucket are checked. 
+The following s3 objects are downloaded and processed:
 
 * `/env` - An [agent environment hook](https://buildkite.com/docs/agent/hooks)
 * `/private_ssh_key` - A private key that is added to ssh-agent for your builds
+* `/git-credentials` - A [git-credentials](https://git-scm.com/docs/git-credential-store#_storage_format) file for git over https
 * `/{pipeline-slug}/env` - An [agent environment hook](https://buildkite.com/docs/agent/hooks), specific to a pipeline
 * `/{pipeline-slug}/private_ssh_key` - A private key that is added to ssh-agent for your builds, specific to the pipeline
+* `/{pipeline-slug}/git-credentials` - A [git-credentials](https://git-scm.com/docs/git-credential-store#_storage_format) file for git over https, specific to a pipeline
 
 These files are encrypted using [Amazon's KMS Service](https://aws.amazon.com/kms/). See the [Security](#security) section for more details.
 
@@ -88,17 +88,27 @@ Here's an example that shows how to generate a private SSH key, and upload it wi
 ssh-keygen -t rsa -b 4096 -f id_rsa_buildkite
 pbcopy < id_rsa_buildkite.pub # paste this into your github deploy key
 
-aws s3 cp --acl private --sse aws:kms id_rsa_buildkite "s3://${SecretsBucket}/private_ssh_key" 
+aws s3 cp --acl private --sse aws:kms id_rsa_buildkite "s3://${SecretsBucket}/private_ssh_key"
 ```
 
-If you really want to disable KMS encryption, you can set `BUILDKITE_USE_KMS=false`.
+If you want to set secrets that your build can access, create a file that sets environment variables and upload it:
+
+```bash
+echo "export MY_ENV_VAR=something secret" > myenv
+aws s3 cp --acl private --sse aws:kms myenv "s3://${SecretsBucket}/env"
+rm myenv
+```
+
+**Note: Currently only using the default KMS key for s3 can be used, follow [#235](https://github.com/buildkite/elastic-ci-stack-for-aws/issues/235) for progress on using specific KMS keys**
+
+If you really want to store your secrets unencrypted, you can disable it entirely with `BUILDKITE_USE_KMS=false`.
 
 ## What’s On Each Machine?
 
-* [Amazon Linux 2016.03.3](https://aws.amazon.com/amazon-linux-ami/)
+* [Amazon Linux 2017.03.1](https://aws.amazon.com/amazon-linux-ami/)
 * [Buildkite Agent](https://buildkite.com/docs/agent)
-* [Docker 17.03.0-ce](https://www.docker.com)
-* [Docker Compose 1.11.2](https://docs.docker.com/compose/)
+* [Docker 17.06.0-ce](https://www.docker.com)
+* [Docker Compose 1.14.0](https://docs.docker.com/compose/)
 * [aws-cli](https://aws.amazon.com/cli/) - useful for performing any ops-related tasks
 * [jq](https://stedolan.github.io/jq/) - useful for manipulating JSON responses from cli tools such as aws-cli or the Buildkite API
 
@@ -114,7 +124,7 @@ By following these simple conventions you get a scaleable, repeatable and source
 
 ## Multiple Instances of the Stack
 
-If you need to different instances sizes and scaling characteristics between pipelines, you can create multiple stack. Each can run on a different [Agent Queue](https://buildkite.com/docs/agent/queues), with it's own configuration, or even in a different AWS account. 
+If you need to different instances sizes and scaling characteristics between pipelines, you can create multiple stack. Each can run on a different [Agent Queue](https://buildkite.com/docs/agent/queues), with it's own configuration, or even in a different AWS account.
 
 Examples:
 
@@ -124,9 +134,9 @@ Examples:
 
 ## Autoscaling
 
-If you have provided `BuildkiteApiAccessToken` and your `MinSize` < `MaxSize`, the stack will automatically scale up and down based on the number of scheduled jobs. 
+If you have provided `BuildkiteApiAccessToken` and your `MinSize` < `MaxSize`, the stack will automatically scale up and down based on the number of scheduled jobs.
 
-This means you can scale down to zero when idle, which means you can use larger instances for the same cost. 
+This means you can scale down to zero when idle, which means you can use larger instances for the same cost.
 
 Metrics are collected with a Lambda function, polling every minute.
 
@@ -150,19 +160,19 @@ If you want to login to an ECR server on another AWS account, you can set `AWS_E
 
 We recommend running the latest release, which is available at `https://s3.amazonaws.com/buildkite-aws-stack/aws-stack.json`, or on the [releases page](https://github.com/buildkite/elastic-ci-stack-for-aws/releases).
 
-The latest build of the stack is published to `https://s3.amazonaws.com/buildkite-aws-stack/master/aws-stack.json`, along with a version for each commit in the form of `https://s3.amazonaws.com/buildkite-aws-stack/master/${COMMIT}.aws-stack.json`. 
+The latest build of the stack is published to `https://s3.amazonaws.com/buildkite-aws-stack/master/aws-stack.json`, along with a version for each commit in the form of `https://s3.amazonaws.com/buildkite-aws-stack/master/${COMMIT}.aws-stack.json`.
 
-Branches are published in the form of `https://s3.amazonaws.com/buildkite-aws-stack/${BRANCH}/aws-stack.json`. 
+Branches are published in the form of `https://s3.amazonaws.com/buildkite-aws-stack/${BRANCH}/aws-stack.json`.
 
 ## Updating Your Stack
 
 To update your stack to the latest version use CloudFormation’s stack update tools with one of the urls in the [Versions](#versions) section.
 
-Prior to updating, it's a good idea to set the desired instance size on the AutoscalingGroup to 0 manually. 
+Prior to updating, it's a good idea to set the desired instance size on the AutoscalingGroup to 0 manually.
 
 ## CloudWatch Metrics
 
-Metrics are calculated every minute from the Buildkite API using a lambda function. 
+Metrics are calculated every minute from the Buildkite API using a lambda function.
 
 <img width="544" alt="cloudwatch" src="https://cloud.githubusercontent.com/assets/153/16836158/85abdbc6-49ff-11e6-814c-eaf2400e8333.png">
 
@@ -228,8 +238,8 @@ Also keep in mind the EC2 HTTP metadata server is available from within builds, 
 To get started with customizing your own stack, or contributing fixes and features:
 
 ```bash
-# To set up your local environment and build a template based on public AMIs
-make setup download-mappings build
+# Build an AMI
+make build
 
 # Or, to set things up locally and create the stack on AWS
 make create-stack
